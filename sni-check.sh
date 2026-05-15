@@ -35,7 +35,6 @@ DEFAULT_POOL=(
 RETRIES=5
 VERBOSE=0
 JSON_OUT=0
-QUICK=0
 CUSTOM_DOMAINS=""
 
 while [ $# -gt 0 ]; do
@@ -44,7 +43,7 @@ while [ $# -gt 0 ]; do
         --retries)  RETRIES="$2"; shift 2 ;;
         --verbose)  VERBOSE=1; shift ;;
         --json)     JSON_OUT=1; shift ;;
-        --quick)    QUICK=1; RETRIES=1; shift ;;
+        --quick)    RETRIES=1; shift ;;
         --pool)     shift ;;
         -h|--help)  sed -n '2,15p' "$0"; exit 0 ;;
         *)  echo "Unknown: $1"; exit 1 ;;
@@ -61,7 +60,12 @@ for t in openssl curl awk grep getent timeout tr; do
     command -v "$t" >/dev/null || { echo "Не установлено: $t"; exit 1; }
 done
 
-RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; CYN='\033[0;36m'; BLU='\033[0;34m'; DIM='\033[2m'; BOLD='\033[1m'; NC='\033[0m'
+RED=$'\033[0;31m'
+GRN=$'\033[0;32m'
+YLW=$'\033[1;33m'
+DIM=$'\033[2m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 ms_since() {
     local end; end=$(date +%s%N)
@@ -94,7 +98,7 @@ tls_handshake() {
     local h="$1" p="$2" sni="$3" ver="${4:-tls1_3}"
     echo Q | timeout 7 openssl s_client \
         -connect "${h}:${p}" -servername "$sni" \
-        -"${ver}" -alpn "h2,http/1.1" 2>&1 </dev/null | tr -d '\0' || true
+        -"${ver}" -alpn "h2,http/1.1" 2>&1 | tr -d '\0' || true
 }
 
 is_tls13() {
@@ -150,7 +154,7 @@ parse_tls() {
 cert_info() {
     local h="$1" p="$2" sni="$3"
     local pem cn issuer enddate end now days san
-    pem=$(echo Q | timeout 7 openssl s_client -connect "${h}:${p}" -servername "$sni" 2>/dev/null </dev/null \
+    pem=$(echo Q | timeout 7 openssl s_client -connect "${h}:${p}" -servername "$sni" 2>/dev/null \
         | tr -d '\0' \
         | awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/')
     [ -z "$pem" ] && { echo "?|?|?|0"; return; }
@@ -217,7 +221,7 @@ check_target() {
     local p="${target##*:}"
     local sni="$h"
 
-    [ "$VERBOSE" = 1 ] && echo -e "\n${BOLD}── $target ──${NC}"
+    [ "$VERBOSE" = 1 ] && printf '\n%s── %s ──%s\n' "$BOLD" "$target" "$NC"
 
     local ipres ips country
     ipres=$(ip_info "$h")
@@ -303,7 +307,7 @@ check_target() {
         local color="$RED"
         [ "$score" -ge 7 ] && color="$GRN"
         { [ "$score" -ge 4 ] && [ "$score" -lt 7 ]; } && color="$YLW"
-        echo -e "  Score:       ${color}${BOLD}${score}/10${NC}"
+        printf '  Score:       %b%s%s/10%b\n' "$color" "$BOLD" "$score" "$NC"
     }
 
     echo "$target|✓|${tcp_ms}ms|${tls13_ok}|${tls13_total}|${PARSED_KEX}|${PARSED_ALPN}|${days}д|${http_code}|${http_ver}|${san}|${country}|${score}"
@@ -316,12 +320,12 @@ check_target() {
 }
 
 echo
-echo -e "${BOLD}╔══════════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║  sni-check v${VERSION} — детальная проверка Reality dest                  ║${NC}"
-echo -e "${BOLD}╠══════════════════════════════════════════════════════════════════════╣${NC}"
-printf "${BOLD}║${NC}  Доменов: %-3d  Попыток TLS: %-2d  Хост: %-28s ${BOLD}║${NC}\n" \
-    "${#TARGETS[@]}" "$RETRIES" "$(hostname)"
-echo -e "${BOLD}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+printf '%b╔══════════════════════════════════════════════════════════════════════╗%b\n' "$BOLD" "$NC"
+printf '%b║  sni-check v%s — детальная проверка Reality dest                  ║%b\n' "$BOLD" "$VERSION" "$NC"
+printf '%b╠══════════════════════════════════════════════════════════════════════╣%b\n' "$BOLD" "$NC"
+printf '%b║%b  Доменов: %-3d  Попыток TLS: %-2d  Хост: %-28s %b║%b\n' \
+    "$BOLD" "$NC" "${#TARGETS[@]}" "$RETRIES" "$(hostname)" "$BOLD" "$NC"
+printf '%b╚══════════════════════════════════════════════════════════════════════╝%b\n' "$BOLD" "$NC"
 
 ROWS=()
 for t in "${TARGETS[@]}"; do
@@ -368,13 +372,14 @@ for row in "${ROWS[@]}"; do
     kex_short="${kex:0:10}"
     alpn_short="${alpn:0:7}"
 
-    printf "%-26s %-3b %-7s %b   %-10s %-7s %-7s %-6s %-6s %-4s %-4s ${sc_col}%s/10${NC}\n" \
+    printf "%-26s %-3b %-7s %b   %-10s %-7s %-7s %-6s %-6s %-4s %-4s %b%s/10%b\n" \
         "$target" "$tcp" "$ms" "$local_disp" \
-        "$kex_short" "$alpn_short" "$certdays" "$http" "$httpver" "$san" "$country" "$score"
+        "$kex_short" "$alpn_short" "$certdays" "$http" "$httpver" "$san" "$country" \
+        "$sc_col" "$score" "$NC"
 done
 
 echo
-echo -e "${BOLD}── Рекомендации (сортировка по score) ──${NC}"
+printf '%b── Рекомендации (сортировка по score) ──%b\n' "$BOLD" "$NC"
 
 tmpf=$(mktemp)
 trap 'rm -f "$tmpf"' EXIT
@@ -392,15 +397,16 @@ while IFS='|' read -r _ target tcp ms tls_ok tls_total kex alpn certdays http ht
     [ "$score" -ge 7 ] && color="$GRN"
     { [ "$score" -ge 4 ] && [ "$score" -lt 7 ]; } && color="$YLW"
     [ "$score" -lt 4 ] && color="$RED"
-    printf "  ${color}%2d. %-26s — ${BOLD}%2s/10${NC} ${color}(TLS1.3: %s/%s, KEX: %-8s, ALPN: %-8s, geo: %s)${NC}\n" \
-        "$i" "$target" "$score" "$tls_ok" "$tls_total" "${kex:0:10}" "${alpn:0:8}" "$country"
+    printf '  %b%2d. %-26s — %b%2s/10%b %b(TLS1.3: %s/%s, KEX: %-8s, ALPN: %-8s, geo: %s)%b\n' \
+        "$color" "$i" "$target" "$BOLD" "$score" "$NC" \
+        "$color" "$tls_ok" "$tls_total" "${kex:0:10}" "${alpn:0:8}" "$country" "$NC"
 done < <(sort -rn -t'|' -k1 "$tmpf")
 
 echo
-echo -e "${BOLD}── Легенда ──${NC}"
-printf "  ${GRN}7–10${NC}  отличный dest для Reality\n"
-printf "  ${YLW}4–6${NC}   приемлемо (TLS1.2 fallback, нет h2 и т.п.)\n"
-printf "  ${RED}0–3${NC}   не рекомендуется (нет TLS 1.3)\n"
+printf '%b── Легенда ──%b\n' "$BOLD" "$NC"
+printf '  %b7–10%b  отличный dest для Reality\n'                 "$GRN" "$NC"
+printf '  %b4–6%b   приемлемо (TLS1.2 fallback, нет h2 и т.п.)\n' "$YLW" "$NC"
+printf '  %b0–3%b   не рекомендуется (нет TLS 1.3)\n'             "$RED" "$NC"
 echo
 echo "  Идеальный профиль:"
 echo "    • TLS 1.3 — 5/5 попыток"
